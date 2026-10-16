@@ -1,0 +1,78 @@
+/**
+ * Relevamiento de uso de IA — Google Apps Script
+ * Script vinculado al Google Sheet (no hace falta pegar ningún ID).
+ * La hoja "Respuestas" se crea sola la primera vez.
+ */
+const SHEET_NAME = 'Respuestas';
+
+const HEADERS = [
+  'Fecha de envío', 'Nombre y apellido', 'Correo corporativo', 'Área / sector',
+  'Puesto o función', '¿Usa IA?', 'Herramientas', 'Frecuencia', 'Objetivos',
+  'Tipos de información', 'Origen de información', '¿Tiene solución propia?',
+  'Detalle de solución', 'Sistemas o servicios conectados', 'Responsable técnico',
+  'Beneficio buscado', 'Dudas o riesgos', 'Comentarios adicionales', 'Confirmación'
+];
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('Relevamiento de uso de inteligencia artificial')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// Se ejecuta una sola vez a mano para autorizar permisos y crear la hoja.
+function setupSheet() {
+  getSheet_();
+}
+
+function getSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Este script debe estar creado desde Extensiones > Apps Script dentro del Google Sheet.');
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(HEADERS);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
+    sheet.getRange('A2:A').setNumberFormat('dd/MM/yyyy HH:mm');
+    sheet.autoResizeColumns(1, HEADERS.length);
+  }
+  return sheet;
+}
+
+function submitSurvey(data) {
+  if (!data || data.website) throw new Error('Solicitud inválida.');
+  if (!data.nombre || !data.email || !data.area || !data.usa_ia || !data.solucion || data.confirmacion !== true) {
+    throw new Error('Faltan campos obligatorios.');
+  }
+  if (String(data.nombre).length > 120 || String(data.email).length > 180 || String(data.area).length > 120) {
+    throw new Error('Algún campo excede el largo permitido.');
+  }
+  const email = String(data.email).trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Correo inválido.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const sheet = getSheet_();
+    const values = [
+      new Date(),
+      clean_(data.nombre), clean_(email), clean_(data.area), clean_(data.puesto),
+      clean_(data.usa_ia), clean_(data.herramientas), clean_(data.frecuencia),
+      clean_(data.objetivo), clean_(data.datos), clean_(data.origen),
+      clean_(data.solucion), clean_(data.detalle_solucion), clean_(data.sistemas),
+      clean_(data.responsable_tecnico), clean_(data.beneficio), clean_(data.riesgos),
+      clean_(data.comentarios), data.confirmacion ? 'Sí' : 'No'
+    ];
+    sheet.appendRow(values);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true };
+}
+
+// Neutraliza entradas que Sheets podría interpretar como fórmulas.
+function clean_(value) {
+  let s = Array.isArray(value) ? value.join(', ') : String(value == null ? '' : value);
+  s = s.replace(/\u0000/g, '').slice(0, 4000);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
